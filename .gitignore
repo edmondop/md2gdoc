@@ -1,0 +1,5 @@
+*.docx
+!gdocs-reference.docx
+__pycache__/
+.venv/
+.ruff_cache/

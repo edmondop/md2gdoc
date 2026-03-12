@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# md2gdoc — Convert Markdown to DOCX with Google Docs-friendly styling.
+#
+# Usage:
+#   md2gdoc input.md                    # outputs input.docx
+#   md2gdoc input.md -o output.docx     # explicit output path
+#   md2gdoc input.md --open             # convert and open in default app
+#   md2gdoc input.md --reference custom.docx  # use a custom reference template
+#
+# The default reference template lives next to this script. Rebuild it with:
+#   python3 build-reference.py
+#
+# You can also place a personal reference template at:
+#   ~/.config/md2gdoc/reference.docx
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Template resolution order:
+# 1. --reference flag (explicit)
+# 2. ~/.config/md2gdoc/reference.docx (user override)
+# 3. gdocs-reference.docx next to this script (default)
+resolve_reference() {
+    local user_ref="${HOME}/.config/md2gdoc/reference.docx"
+    local default_ref="${SCRIPT_DIR}/gdocs-reference.docx"
+
+    if [[ -f "$user_ref" ]]; then
+        echo "$user_ref"
+    elif [[ -f "$default_ref" ]]; then
+        echo "$default_ref"
+    else
+        echo ""
+    fi
+}
+
+# Parse arguments
+INPUT=""
+OUTPUT=""
+REFERENCE=""
+OPEN_AFTER=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o|--output)
+            OUTPUT="$2"
+            shift 2
+            ;;
+        -r|--reference)
+            REFERENCE="$2"
+            shift 2
+            ;;
+        --open)
+            OPEN_AFTER=true
+            shift
+            ;;
+        -h|--help)
+            cat <<'HELP'
+Usage: md2gdoc <input.md> [options]
+
+Convert Markdown to DOCX with Google Docs-friendly styling.
+Upload the .docx to Google Drive and open as Google Doc for review.
+
+Options:
+  -o, --output FILE       Output path (default: input.docx)
+  -r, --reference FILE    Custom reference DOCX template
+      --open              Open the output file after conversion
+  -h, --help              Show this help message
+
+Template resolution order:
+  1. --reference flag (explicit)
+  2. ~/.config/md2gdoc/reference.docx (user override)
+  3. Built-in gdocs-reference.docx (default)
+
+Features:
+  - YAML frontmatter → document title, author, date
+  - GFM tables, fenced code blocks, task lists
+  - Embedded images (PNG, JPEG, SVG with fallback)
+  - Styled to match Google Docs defaults (Arial 11pt, 1.15 line spacing)
+
+Prerequisites:
+  - pandoc (brew install pandoc)
+HELP
+            exit 0
+            ;;
+        -*)
+            echo "Error: unknown option: $1" >&2
+            echo "Run 'md2gdoc --help' for usage." >&2
+            exit 1
+            ;;
+        *)
+            INPUT="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$INPUT" ]]; then
+    echo "Error: no input file specified." >&2
+    echo "Run 'md2gdoc --help' for usage." >&2
+    exit 1
+fi
+
+if [[ ! -f "$INPUT" ]]; then
+    echo "Error: file not found: $INPUT" >&2
+    exit 1
+fi
+
+# Check pandoc is installed
+if ! command -v pandoc &>/dev/null; then
+    echo "Error: pandoc is not installed." >&2
+    echo "Install it with: brew install pandoc" >&2
+    exit 1
+fi
+
+# Resolve reference template
+if [[ -z "$REFERENCE" ]]; then
+    REFERENCE="$(resolve_reference)"
+fi
+
+if [[ -z "$REFERENCE" || ! -f "$REFERENCE" ]]; then
+    echo "Error: no reference template found." >&2
+    echo "Run 'python3 ${SCRIPT_DIR}/build-reference.py' to generate one." >&2
+    exit 1
+fi
+
+# Default output: same name, .docx extension
+if [[ -z "$OUTPUT" ]]; then
+    OUTPUT="${INPUT%.md}.docx"
+fi
+
+# Resolve images relative to the input file's directory and ancestors
+INPUT_DIR="$(cd "$(dirname "$INPUT")" && pwd)"
+
+pandoc \
+    -f gfm+yaml_metadata_block \
+    -t docx \
+    --standalone \
+    --reference-doc="$REFERENCE" \
+    --resource-path="${INPUT_DIR}:${INPUT_DIR}/..:.." \
+    "$INPUT" \
+    -o "$OUTPUT"
+
+echo "Converted: $OUTPUT"
+
+if $OPEN_AFTER; then
+    open "$OUTPUT"
+fi
