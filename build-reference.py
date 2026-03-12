@@ -18,7 +18,9 @@ The generated reference DOCX configures:
 """
 
 import argparse
+import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -28,7 +30,32 @@ from docx.shared import Pt, RGBColor
 from lxml import etree
 
 
+MIN_PANDOC_VERSION = (3, 0)
+
+
+def _check_pandoc_version() -> None:
+    result = subprocess.run(
+        ["pandoc", "--version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    match = re.search(r"pandoc (\d+)\.(\d+)", result.stdout)
+    if not match:
+        print("Error: could not determine pandoc version.", file=sys.stderr)
+        sys.exit(1)
+    version = (int(match.group(1)), int(match.group(2)))
+    if version < MIN_PANDOC_VERSION:
+        print(
+            f"Error: pandoc {version[0]}.{version[1]} is too old. "
+            f"Requires >= {MIN_PANDOC_VERSION[0]}.{MIN_PANDOC_VERSION[1]}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def build_reference(*, output_path: Path) -> None:
+    _check_pandoc_version()
     with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
         subprocess.run(
             ["pandoc", "-o", tmp.name, "--print-default-data-file", "reference.docx"],
@@ -92,9 +119,27 @@ def _set_default_line_spacing(doc: Document) -> None:
 
 def _style_headings(doc: Document) -> None:
     configs = {
-        "Heading 1": {"size": Pt(20), "color": None, "bold": True, "before": Pt(20), "after": Pt(6)},
-        "Heading 2": {"size": Pt(16), "color": None, "bold": False, "before": Pt(18), "after": Pt(6)},
-        "Heading 3": {"size": Pt(14), "color": RGBColor(0x43, 0x43, 0x43), "bold": False, "before": Pt(16), "after": Pt(4)},
+        "Heading 1": {
+            "size": Pt(20),
+            "color": None,
+            "bold": True,
+            "before": Pt(20),
+            "after": Pt(6),
+        },
+        "Heading 2": {
+            "size": Pt(16),
+            "color": None,
+            "bold": False,
+            "before": Pt(18),
+            "after": Pt(6),
+        },
+        "Heading 3": {
+            "size": Pt(14),
+            "color": RGBColor(0x43, 0x43, 0x43),
+            "bold": False,
+            "before": Pt(16),
+            "after": Pt(4),
+        },
     }
 
     for style_name, cfg in configs.items():
@@ -159,7 +204,8 @@ def main() -> None:
         description="Build a Pandoc reference DOCX matching Google Docs styling.",
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         default="gdocs-reference.docx",
         help="Output path for the reference DOCX (default: gdocs-reference.docx)",
     )
